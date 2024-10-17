@@ -1,40 +1,31 @@
+import type { Request, Response, NextFunction } from "express";
 import jwt from 'jsonwebtoken'
 import type { JwtPayload } from 'jsonwebtoken'
-import type { Response, Request, NextFunction } from 'express'
-import { CustomError } from '../exceptions/customError'
 
 
 // biome-ignore lint/suspicious/noExplicitAny: <explanation>
-export const verifyToken = (req: Request, res: Response, next: NextFunction): void => {
+export const verifyRefreshToken = (req: Request, res: Response, next: NextFunction): any => {
+
+    const refreshToken = <string>req.cookies.token
 
 
-    const headerAuth = <string>req.header('Authorization')
-
-    if (!headerAuth) {
-        res.status(401).json({ success: false, message: 'Missing or invalid token unauthorized !' })
-    }
-
-    const [bearer,token] = headerAuth.split(' ')
-    if(bearer !== 'Bearer' || !token) {
-        res.status(401).json({ success: false, message: 'Missing or invalid token unauthorized !' })
+    if (!refreshToken) {
+        res.status(401).json({ success: false, message: 'Missing or invalid token' });
     }
 
     try {
-        const JwtPayload = jwt.verify(token, process.env.PRIVATE_KEY as string, {
+
+        const jwtPayLoad = jwt.verify(refreshToken, process.env.PRIVATE_KEY as string, {
             algorithms: ['HS256'],
             audience: 'http://localhost:3000',
             issuer: 'http://localhost:3000',
             clockTolerance: 5,
             ignoreExpiration: false,
-            ignoreNotBefore: false,
-
         }) as JwtPayload
 
-
-        req.body.userId = JwtPayload.userId
+        req.body.userId = jwtPayLoad.userId
 
         next()
-
     } catch (error) {
 
 
@@ -45,4 +36,6 @@ export const verifyToken = (req: Request, res: Response, next: NextFunction): vo
             res.status(500).json({ success: false, message: 'Internal server error' });
         }
     }
+
 }
+

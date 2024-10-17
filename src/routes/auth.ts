@@ -1,15 +1,20 @@
-import express from 'express'
-import { loginController, logout, profileController, signupController } from '../controllers/authController'
-import { verifyToken } from '../middleware/verifyToken'
+import express from "express";
+import { verifyToken } from "../middleware/verifyToken";
+import { asyncHandler } from "../middleware/asyncHandler";
+import AuthController from "../controllers/authController";
+import { verifyRefreshToken } from "../middleware/verifyRefreshToken";
 
+const router = express.Router();
 
-const router = express.Router()
+//router.post('/signup', signupController)
+router.post("/login", asyncHandler(AuthController.login));
+router.post("/logout", asyncHandler(AuthController.logout));
+router.get(
+	"/token",
+	verifyRefreshToken,
+	asyncHandler(AuthController.refreshToken),
+);
 
-router.post('/signup', signupController)
-router.post('/login', loginController)
-router.post('/logout', logout)
-router.get('/profile',verifyToken,profileController)
+//router.get('/profile',verifyToken,profileController)
 
-
-
-export default router
+export default router;
