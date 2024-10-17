@@ -1,104 +1,121 @@
 import type { Response, Request } from 'express'
 import { LoginService, SignupService } from '../services/authService'
-import { generateTokenAndSetCookie } from '../utils/generateTokenCookie'
-import { User } from '../models/user.model'
+import { generateAccessToken } from '../utils/generateAccessToken'
+import type { User } from '../models/user.model'
+import { object, z } from "zod";
+import { CustomError } from '../exceptions/customError';
+import { generateRefreshToken } from '../utils/genereateRefreshToken';
 
-export const signupController = async (req: Request, res: Response) => {
+const userSchema = z.object({
 
-    const signupService = new SignupService()
-    const { email, password, name } = req.body
+    email: z.string().email(),
+    password: z.string(),
+    name: z.string(),
+})
 
-    if (!email || !password || !name) {
-        res.status(400).json({
 
-            success: false,
-            message: 'All fields are required'
-        })
+// biome-ignore lint/complexity/noStaticOnlyClass: <explanation>
+class AuthController {
+
+    static login = async (req: Request, res: Response) => {
+        try {
+            const { email, password } = req.body
+
+            if (!email || !password) throw new CustomError('All fields are required!', 400)
+
+
+            const user = await LoginService.login(email, password)
+            const userObject = user?.toObject() as User
+            const { password: _, ...userParsed } = userObject
+
+
+            user.lastLogin = new Date()
+            await user.save()
+            const { refreshToken } = generateRefreshToken(res, user._id.toString())
+            generateAccessToken(res, user._id.toString())
+
+
+            res.status(200).cookie('token', refreshToken, {
+                maxAge: 7 * 24 * 60 * 60 * 1000,
+                httpOnly: true,
+                sameSite: 'strict',
+                secure: process.env.NODE_ENV === 'production',
+            }).json({
+
+                success: true,
+                message: 'User logged in successfully',
+                user: userParsed,
+            })
+
+
+
+        }
+        catch (error) {
+
+            if (error instanceof CustomError) {
+                res.status(error.status).json({
+                    success: false,
+                    message: error.message
+
+                })
+            } else {
+
+                res.status(500).json({
+                    success: false,
+                    message: 'Server error, please try again'
+                })
+            }
+        }
+
+
     }
 
-    const user = await signupService.signup(email, password, name)
-
-    generateTokenAndSetCookie(res, user._id.toString())
-
-    res.status(201).json({
-
-        success: true,
-        message: 'User created successfully',
-        user: {
-
-            //id: user.id,
-            email: user.email,
-            name: user.name,
-        }
-    })
-}
-
-export const loginController = async (req: Request, res: Response) => {
-
-    try {
-        const { email, password } = req.body
-
-        const loginService = new LoginService()
-
-
-        const user = await loginService.login(email, password)
 
 
 
-        user.lastLogin = new Date()
-        await user.save()
-        generateTokenAndSetCookie(res, user._id.toString())
+    static logout = async (req: Request, res: Response) => {
 
-        res.status(200).json({
+        res.clearCookie('token')
+        res.header('Authorization', '')
+        res.status(200).json({ success: true, message: 'User logged out successfully' })
+    }
+
+
+
+    static refreshToken = async (req: Request, res: Response) => {
+
+        const accessToken = generateAccessToken(res, req.body.userId)
+
+        if (!accessToken) throw new CustomError('Refresh token is required', 400)
+
+        res.json({
 
             success: true,
-            message: 'User logged in successfully',
-            user: {
-                name: user.name,
-                email: user.email
-            }
+            message: 'Token refreshed successfully',
         })
 
+
     }
-    catch (error) {
 
-
-        if (error instanceof Error) {
-            res.status(401).json({
+    /*
+    export const profileController = async (req: Request, res: Response) => {
+    
+        const userId = req.body.userId
+        console.log(userId)
+    
+        const user = await User.findById(userId).select('-password')
+    
+        if (!user) {
+    
+            res.status(400).json({
                 success: false,
-                message: error.message
+                message: 'User ID is required'
             })
-        } else {
-
-            console.log(error)
         }
+    
+        res.status(200).json({ success: true, user })
     }
-
-
+    */
 }
 
-export const logout = async (req: Request, res: Response) => {
-
-    res.clearCookie('token')
-    res.status(200).json({ success: true, message: 'User logged out successfully' })
-}
-
-
-
-export const profileController = async (req: Request, res: Response) => {
-
-    const userId = req.body.userId
-    console.log(userId)
-
-    const user = await User.findById(userId).select('-password')
-
-    if (!user) {
-
-        res.status(400).json({
-            success: false,
-            message: 'User ID is required'
-        })
-    }
-
-    res.status(200).json({ success: true, user })
-}
+export default AuthController
