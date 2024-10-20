@@ -6,69 +6,52 @@ import { UnauthorizedError } from "../exceptions/unauthorizedError";
 import { CustomError } from "../exceptions/customError";
 // biome-ignore lint/complexity/noStaticOnlyClass: <explanation>
 export class SignupService {
+	static signup = async (email: string, password: string, name: string) => {
+		const hashedPassword = await argon2.hash(password, {
+			type: argon2.argon2id,
 
-    static signup = async (email: string, password: string, name: string) => {
+			memoryCost: 1024,
 
-        const hashedPassword = await argon2.hash(password, {
+			timeCost: 6,
+		});
 
-            type: argon2.argon2id,
+		const verificationToken = crypto.randomUUID();
+		// biome-ignore lint/suspicious/noImplicitAnyLet: <explanation>
+		let user;
 
-            memoryCost: 1024,
+		try {
+			user = new User({
+				email,
+				password: hashedPassword,
+				name,
+				verificationToken,
+				verificationExpiresAt: Date.now() + 24 * 60 * 60 * 1000,
+			});
 
-            timeCost: 6,
-
-        })
-
-        const verificationToken = crypto.randomUUID()
-        // biome-ignore lint/suspicious/noImplicitAnyLet: <explanation>
-        let user
-        
-        try {
-            
-            user = new User({
-                email,
-                password: hashedPassword,
-                name,
-                verificationToken,
-                verificationExpiresAt: Date.now() + 24 * 60 * 60 * 1000,
-
-            })
-
-            await user.save()
-        }
-
-        catch (e) {
-            console.error(e)
-            throw new CustomError('Server error, please try again')
-        }
-        return user
-
-    }
+			await user.save();
+		} catch (e) {
+			console.error(e);
+			throw new CustomError("Server error, please try again !!");
+		}
+		return user;
+	};
 }
 
 // biome-ignore lint/complexity/noStaticOnlyClass: <explanation>
 export class LoginService {
+	static login = async (email: string, password: string) => {
+		const user = await User.findOne({ email: email });
 
+		if (!user) {
+			throw new UnauthorizedError("Invalid credentials");
+		}
 
-    static login = async (email: string, password: string) => {
+		const passwordValid = await argon2.verify(user.password, password);
 
-        const user = await User.findOne({ email: email })
+		if (!passwordValid) {
+			throw new UnauthorizedError("Invalid credentials");
+		}
 
-        if (!user) {
-
-            throw new UnauthorizedError('Invalid credentials')
-        }
-
-        const passwordValid = await argon2.verify(user.password, password)
-
-        if (!passwordValid) {
-
-            throw new UnauthorizedError('Invalid credentials')
-        }
-
-
-        return user
-
-    }
-
+		return user;
+	};
 }
