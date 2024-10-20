@@ -3,105 +3,178 @@ import { ClientError } from "../exceptions/clientError";
 import { NotFoundError } from "../exceptions/notFoundError";
 import { User } from "../models/user.model";
 import { SignupService } from "../services/authService";
-
+import { CustomError } from "../exceptions/customError";
+import { UnauthorizedError } from "../exceptions/unauthorizedError";
+import { createUserDto, updateUserDto } from "../dtos/user.dto";
+import { ZodError } from "zod";
 // biome-ignore lint/complexity/noStaticOnlyClass: <explanation>
 class UserController {
+	static listAll = async (req: Request, res: Response, next: NextFunction) => {
+		try {
+			const users = await User.find().select(["_id", "name"]);
+			if (!users) throw new NotFoundError("Not user yet!");
 
-    static listAll = async (req: Request, res: Response, next: NextFunction) => {
+			res.status(200).json({
+				message: "Users retrieved successfully",
+				users,
+			});
+		} catch (error) {
+			if (error instanceof NotFoundError) {
+				res.status(error.status).json({
+					success: false,
+					message: error.message,
+				});
+			}
+			res.status(500).json({
+				success: false,
+				message: "Internal server error...",
+			});
+		}
+	};
 
-        const users = await User.find().select(['_id', 'name', 'email'])
+	static getById = async (req: Request, res: Response, next: NextFunction) => {
+		const id = req.params.id;
+		const user = await User.findById(id).select(["_id", "name", "email"]);
 
-        res.status(200).json({
-            message: 'Users retrieved successfully',
-            users
-        })
-    }
+		if (!user) throw new NotFoundError(`User with id ${id} not found`);
 
-    static getById = async (req: Request, res: Response, next: NextFunction) => {
+		res.status(200).json({
+			message: "User retrieved successfully",
+			user,
+		});
+	};
 
-        const id = req.params.id
-        const user = await User.findById(id).select(['_id', 'name', 'email'])
+	static newUser = async (req: Request, res: Response, next: NextFunction) => {
+		try {
+			//const { name, email, password } = req.body;
 
-        if (!user) throw new NotFoundError(`User with id ${id} not found`)
+			const validatedUserData = createUserDto.parse(req.body);
 
-        res.status(200).json({
+			const [userEmailExistsm, userNameExists] = await Promise.all([
+				User.findOne({ email: validatedUserData.email }),
+				User.findOne({ name: validatedUserData.name }),
+			]);
 
-            message: 'User retrieved successfully',
-            user
-        })
-    }
+			if (userNameExists || userEmailExistsm) {
+				throw new CustomError("User already exists", 400);
+			}
 
+			const user = await SignupService.signup(
+				validatedUserData.email,
+				validatedUserData.password,
+				validatedUserData.name,
+			);
 
-    static newUser = async (req: Request, res: Response, next: NextFunction) => {
+			if (!user) throw new ClientError("Error creating user");
 
-        const { name, email, password } = req.body
+			const userObject = user?.toObject() as User;
 
-        if (!name || !email || !password) {
-            throw new ClientError('All fields are required')
-        }
+			const { password: _, ...userParsed } = userObject;
+			return res.status(201).json({
+				message: "User created successfully",
+				user: userParsed,
+			});
+		} catch (error) {
+			if (error instanceof ZodError) {
+				return res.status(400).json({
+					success: false,
+					message: error.errors,
+				});
+			}
+			if (error instanceof CustomError || error instanceof ClientError) {
+				return res.status(error.status).json({
+					success: false,
+					message: error.message,
+				});
+			} else {
+				console.log(error);
+				return res.status(500).json({
+					success: false,
+					message: "Internal server error",
+				});
+			}
+		}
+	};
 
-        try {
-            const user = await SignupService.signup(email, password, name)
+	static editUser = async (req: Request, res: Response, next: NextFunction) => {
+		const id = req.params.id;
+		//const { name, email } = req.body;
 
+		//if (!name || !email) {
+		//throw new ClientError("All fields are required");
+		//}
+		try {
+			const validateUserData = updateUserDto.parse(req.body);
 
-            if (!user) throw new ClientError('Error creating user')
+			const user = await User.findById(id).select(["_id", "name", "email"]);
+			if (!user) throw new NotFoundError(`User with id ${id} not found`);
 
+			user.name = validateUserData.name;
+		} catch (error) {
+			if (error instanceof ZodError) {
+				return res.status(400).json({
+					success: false,
+					error: error.errors,
+				});
+			}
+			if (error instanceof CustomError) {
+				return res.status(error.status).json({
+					success: false,
+					message: error.message,
+				});
+			}
 
-            const userObject = user?.toObject() as User
+			console.error("Errot at :", error);
+			res.status(500).json({
+				success: false,
+				message: "Internal server error",
+			});
+		}
+	};
 
-            const { password: _, ...userParsed } = userObject
+	static deleteUser = async (
+		req: Request,
+		res: Response,
+		next: NextFunction,
+	) => {
+		const id = req.params.id;
 
+		const { userId } = req.body;
 
-            res.status(201).json({
-                message: 'User created successfully',
-                user: userParsed
-            })
+		try {
+			const user = await User.findById(id).select(["_id", "name", "email"]);
+			if (!user) {
+				throw new NotFoundError(`User with id ${id} not found`);
+			}
 
-        } catch (error) {
+			if (userId !== user._id.toString()) {
+				throw new UnauthorizedError(
+					"You are not authorized to delete this user",
+				);
+			}
 
-
-            console.log(error)
-
-            res.status(500).json({
-                message: 'Server error, please try again',
-                error: (error as Error).message
-            })
-
-        }
-
-
-
-    }
-
-    static editUser = async (req: Request, res: Response, next: NextFunction) => {
-
-        const id = req.params.id
-        const { name, email } = req.body
-
-        if (!name || !email) {
-            throw new ClientError('All fields are required')
-        }
-
-        const user = await User.findById(id).select(['_id', 'name', 'email'])
-        if (!user) throw new NotFoundError(`User with id ${id} not found`)
-
-        if (name) user.name = name
-    }
-
-    static deleteUser = async (req: Request, res: Response, next: NextFunction) => {
-
-        const id = req.params.id
-
-        const user = await User.findById(id).select(['_id', 'name', 'email'])
-        if (!user) throw new NotFoundError(`User with id ${id} not found`)
-
-        await user.deleteOne({ _id: id })
-
-        res.status(204).json({
-
-            message: 'User deleted successfully',
-        })
-    }
+			await User.deleteOne({ _id: id });
+			res.status(200).json({
+				messsage: "User deleted successfully",
+			});
+		} catch (error) {
+			if (
+				error instanceof NotFoundError ||
+				error instanceof UnauthorizedError
+			) {
+				res.status(error.status).json({
+					success: false,
+					message: error.message,
+				});
+			} else {
+				console.error(error);
+				res.status(500).json({
+					success: false,
+					message: "Internal server error",
+				});
+			}
+		}
+	};
 }
 
-export default UserController
+export default UserController;
