@@ -6,7 +6,6 @@ import { verifyRefreshToken } from "../middleware/verifyRefreshToken";
 
 const router = express.Router();
 
-//router.post('/signup', signupController)
 router.post("/login", asyncHandler(AuthController.login));
 router.post("/logout", asyncHandler(AuthController.logout));
 router.get(
